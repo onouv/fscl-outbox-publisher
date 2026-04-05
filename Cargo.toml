@@ -1,0 +1,6 @@
+[package]
+name = "fscl-outbox-publisher"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

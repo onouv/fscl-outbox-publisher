@@ -1,11 +1,4 @@
-mod config;
-use config::*;
-
-mod messenger;
-use messenger::*;
-
-mod outbox;
-use outbox::*;
+use fscl_outbox_publisher::{Config, Messenger, Outbox};
 
 use dotenv::*;
 

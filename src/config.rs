@@ -1,18 +1,18 @@
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Config {
-    pub(crate) database_url: String,
-    pub(crate) nats_url: String,
-    pub(crate) listen_channel: String,
-    pub(crate) subject_prefix: String,
-    pub(crate) batch_size: i64,
-    pub(crate) fallback_poll_ms: u64,
+pub struct Config {
+    pub database_url: String,
+    pub nats_url: String,
+    pub listen_channel: String,
+    pub subject_prefix: String,
+    pub batch_size: i64,
+    pub fallback_poll_ms: u64,
 }
 
 impl Config {
-    pub(crate) fn build_database_url_from_env() -> Result<String> {
-        let db_type = "postgres".to_string(); 
+    pub fn build_database_url_from_env() -> Result<String> {
+        let db_type = "postgres".to_string();
         let db_host = require_env("DB_HOST")?;
         let db_port = require_env("DB_PORT")?;
         let db_user = require_env("DB_USER")?;
@@ -25,7 +25,7 @@ impl Config {
         ))
     }
 
-    pub(crate) fn from_env() -> Result<Self> {
+    pub fn from_env() -> Result<Self> {
         let database_url = Self::build_database_url_from_env()?;
 
         let nats_url = require_env("NATS_URL")?;

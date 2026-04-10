@@ -1,23 +1,23 @@
-use crate::{config::Config, messenger::Messenger};
 use sqlx::postgres::PgListener;
 use thiserror::Error;
 use tracing::info;
 
-pub(crate) struct Outbox {
+use crate::{config::Config, messenger::Messenger};
+
+pub struct Outbox {
     config: Config,
     messenger: Messenger,
 }
 
 impl Outbox {
-    pub(crate) fn new(config: &Config, messenger: Messenger) -> Result<Self, OutboxError> {
-        Ok(Outbox { config: config.clone(), messenger })
+    pub fn new(config: &Config, messenger: Messenger) -> Result<Self, OutboxError> {
+        Ok(Self {
+            config: config.clone(),
+            messenger,
+        })
     }
 
-    /** Await notifications from the outbox table in database, periodically tidy the outbox table.
-      
-    TODO: implement graceful shutdown and error handling, and publish events to NATS when notification is received.
-    */
-    pub(crate) async fn run(&self) -> Result<(), OutboxError> {
+    pub async fn run(&self) -> Result<(), OutboxError> {
         info!("awaiting outbox notification...");
 
         let mut listener = PgListener::connect(self.config.database_url.as_str())
@@ -31,7 +31,8 @@ impl Outbox {
                 source,
             })?;
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(self.config.fallback_poll_ms));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_millis(self.config.fallback_poll_ms));
         loop {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
@@ -39,8 +40,9 @@ impl Outbox {
                     break;
                 },
                 _ = interval.tick() => {
+                    let _ = &self.messenger;
                     info!("tidying outbox table...");
-                }            
+                }
             }
         }
 
@@ -49,7 +51,7 @@ impl Outbox {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum OutboxError {
+pub enum OutboxError {
     #[error("failed to create LISTEN connection")]
     ConnectListener {
         #[source]

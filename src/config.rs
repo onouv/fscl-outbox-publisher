@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
-    database_url: String,
-    nats_url: String,
-    listen_channel: String,
-    subject_prefix: String,
-    batch_size: i64,
-    fallback_poll_ms: u64,
+    pub(crate) database_url: String,
+    pub(crate) nats_url: String,
+    pub(crate) listen_channel: String,
+    pub(crate) subject_prefix: String,
+    pub(crate) batch_size: i64,
+    pub(crate) fallback_poll_ms: u64,
 }
 
 impl Config {

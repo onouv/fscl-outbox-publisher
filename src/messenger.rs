@@ -1,5 +1,7 @@
 use super::config::Config;
 use fscl_core::DomainEvent;
+use anyhow::Error;
+use serde::Serialize;
 
 pub(crate) struct Messenger {
     config: Config

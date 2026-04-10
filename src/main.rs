@@ -7,12 +7,10 @@ use messenger::*;
 mod outbox;
 use outbox::*;
 
-use tracing::{ info, error };
-use anyhow::{Result, Error};
 use dotenv::*;
 
-#[tokio(main)]
-async fn main() -> Error {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -25,5 +23,7 @@ async fn main() -> Error {
     let messenger = Messenger::new(&config)?; 
     let outbox: Outbox = Outbox::new(&config, messenger)?;
 
-    outbox.observe_and_forward()?;
+    outbox.observe_and_forward().await?;
+
+    Ok(())
 }

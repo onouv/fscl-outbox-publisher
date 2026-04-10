@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let messenger = Messenger::new(&config)?; 
     let outbox: Outbox = Outbox::new(&config, messenger)?;
 
-    outbox.observe_and_forward().await?;
+    outbox.run().await?;
 
     Ok(())
 }

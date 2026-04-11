@@ -1,4 +1,7 @@
+use fscl_messaging::{EventEnvelope, OutboxRecord};
 use sqlx::postgres::PgListener;
+use sqlx::postgres::PgRow;
+use sqlx::Row;
 use thiserror::Error;
 use tracing::info;
 
@@ -48,6 +51,29 @@ impl Outbox {
 
         Ok(())
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn outbox_record_from_row(row: &PgRow) -> Result<OutboxRecord, OutboxError> {
+        Ok(OutboxRecord {
+            envelope: EventEnvelope {
+                id: row.try_get("id")?,
+                occurred_at: row.try_get("occurred_at")?,
+                event_type: row.try_get("event_type")?,
+                aggregate_type: row.try_get("aggregate_type")?,
+                aggregate_id: row.try_get("aggregate_id")?,
+                view_id: row.try_get("view_id")?,
+                payload: row.try_get("payload")?,
+            },
+            published_at: row.try_get("published_at")?,
+            attempts: attempts_from_db(row.try_get("attempts")?)?,
+            last_error: row.try_get("last_error")?,
+        })
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn attempts_from_db(value: i32) -> Result<u32, OutboxError> {
+    u32::try_from(value).map_err(|_| OutboxError::NegativeAttempts { value })
 }
 
 #[derive(Debug, Error)]
@@ -65,6 +91,28 @@ pub enum OutboxError {
         source: sqlx::Error,
     },
 
+    #[error("outbox attempts must be non-negative, got {value}")]
+    NegativeAttempts { value: i32 },
+
     #[error(transparent)]
     DbError(#[from] sqlx::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attempts_from_db;
+
+    #[test]
+    fn converts_non_negative_attempts() {
+        assert_eq!(attempts_from_db(0).unwrap(), 0);
+        assert_eq!(attempts_from_db(3).unwrap(), 3);
+    }
+
+    #[test]
+    fn rejects_negative_attempts() {
+        assert!(matches!(
+            attempts_from_db(-1),
+            Err(super::OutboxError::NegativeAttempts { value: -1 })
+        ));
+    }
 }

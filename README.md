@@ -22,7 +22,6 @@ fscl-messaging -> event/outbox contract
 fscl-core      -> shared core types used by transitional code paths
 ```
 
-The intended long-term center of gravity for this crate is `fscl-messaging`.
 
 ## Split
 
@@ -46,7 +45,7 @@ Shared/local dev loading order:
 
 Config points:
 
-- `DB_HOST`: PostgreSQL host for the bounded-context database
+- `DB_HOST`: PostgreSQL host for the bounded-context (view-specific) database
 - `DB_PORT`: PostgreSQL port
 - `DB_USER`: PostgreSQL user
 - `DB_PASSWORD`: PostgreSQL password
@@ -64,7 +63,7 @@ Code-level contract values, not env:
 
 ## Dev Setup
 
-Create the env files:
+Create the env files, modify as needed:
 
 ```sh
 cp ../.env.shared.example ../.env.shared

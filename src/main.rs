@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
-    let messenger = Messenger::new(&config)?; 
+    let messenger = Messenger::new(&config).await?; 
     let outbox: Outbox = Outbox::new(&config, messenger)?;
 
     outbox.run().await?;

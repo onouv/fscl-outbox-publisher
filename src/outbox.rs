@@ -1,20 +1,29 @@
 use fscl_messaging::{EventEnvelope, OutboxRecord};
+use sqlx::PgPool;
+use sqlx::Row;
 use sqlx::postgres::PgListener;
 use sqlx::postgres::PgRow;
-use sqlx::Row;
+use sqlx::types::chrono;
 use thiserror::Error;
-use tracing::info;
+use tokio::time::interval;
+use tracing::{debug, error, info, warn};
 
 use crate::{config::Config, messenger::Messenger};
 
 pub struct Outbox {
+    pool: sqlx::PgPool,
     config: Config,
     messenger: Messenger,
 }
 
 impl Outbox {
-    pub fn new(config: &Config, messenger: Messenger) -> Result<Self, OutboxError> {
+    pub async fn new(config: &Config, messenger: Messenger) -> Result<Self, OutboxError> {
+        let pool = PgPool::connect(&config.database_url)
+            .await
+            .map_err(|source| OutboxError::DbError(source))?;
+
         Ok(Self {
+            pool,
             config: config.clone(),
             messenger,
         })
@@ -26,6 +35,7 @@ impl Outbox {
         let mut listener = PgListener::connect(self.config.database_url.as_str())
             .await
             .map_err(|source| OutboxError::ConnectListener { source })?;
+
         listener
             .listen(self.config.listen_channel.as_str())
             .await
@@ -34,32 +44,156 @@ impl Outbox {
                 source,
             })?;
 
-        let mut interval =
-            tokio::time::interval(std::time::Duration::from_millis(self.config.fallback_poll_ms));
+        self.catch_up_pending_notifications().await?;
+
+        let mut interval = interval(std::time::Duration::from_millis(
+            self.config.fallback_poll_ms,
+        ));
+
         loop {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     info!("shutting down outbox publisher...");
-                    break;
+                    return Ok(());
                 },
                 _ = interval.tick() => {
-                    let _ = &self.messenger;
-                    info!("tidying outbox table...");
+                    match self.drain_outbox().await {
+                        Ok(count) => {
+                            debug!("drained {} outbox records on fallback interval", count);
+                            count
+                        },
+                        Err(e) => {
+                            error!("failed_draining_outbox : {}", e);
+                            0
+                        }
+                    };
+                }
+                recv = listener.recv() => {
+                    match recv {
+                        Ok(notification) => {
+                            debug!("draining outbox on notification: {} ...", notification.payload());
+                            match self.drain_outbox().await {
+                                Ok(count) => debug!("drained {} outbox records", count),
+                                Err(e) => error!("failed_draining_outbox : {}", e),
+                            }
+                        },
+                        Err(e) => {
+                            warn!(error = %e, "failed_receiving_notification");
+                        }
+                    }
                 }
             }
         }
+    }
 
-        Ok(())
+    async fn catch_up_pending_notifications(&self) -> Result<(), OutboxError> {
+        debug!("catching up on pending outbox notifications...");
+
+        match self.drain_outbox().await {
+            Ok(count) => {
+                debug!("caught up on {} pending outbox records", count);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn load_pending_outbox_records(&self) -> Result<Vec<OutboxRecord>, OutboxError> {
+        let rows = match sqlx::query(
+            r#"
+            SELECT id, aggregate_type, aggregate_id, event_type, view_id, payload
+            FROM outbox
+            WHERE published_at IS NULL
+            ORDER BY occurred_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $1
+            "#,
+        )
+        .bind(cfg.batch_size)
+        .fetch_all(&mut *tx)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("failed loading pending outbox records: {}", e);
+                return Err(OutboxError::DbError(e));
+            }
+        };
+
+        Ok(rows.into_iter().map(Self::outbox_record_from_row).collect::<Result<_, OutboxError>>()?)
+    }
+    async fn drain_outbox(&self) -> Result<usize, OutboxError> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT id, occurred_at, event_type, aggregate_type, aggregate_id, view_id, payload, published_at, attempts, last_error
+            FROM outbox
+            WHERE published_at IS NULL
+            ORDER BY occurred_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $1
+            "#,
+        )
+        .bind(self.config.batch_size as i32)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if rows.is_empty() {
+            tx.commit().await?;
+            return Ok(0);
+        }
+
+        let mut num_published = 0;
+        
+        for row in rows {
+            let mut record = Self::outbox_record_from_row(&row)?;
+
+
+            match self.messenger.publish(&record) {
+                Ok(()) => {
+                    record.mark_published(chrono::Utc::now());
+                    num_published += 1;
+                }
+                Err(e) => {
+                    error!("failed_publishing_event {}: {}", record.envelope.id, e);
+                    record.track_failure(e.to_string());
+                }
+            };
+
+            sqlx::query(
+                r#"
+                UPDATE outbox
+                SET published_at = $1, attempts = $2, last_error = $3
+                WHERE id = $4
+                "#,
+            )
+            .bind(record.published_at)
+            .bind(record.attempts as i32)
+            .bind(&record.last_error)
+            .bind(record.envelope.id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        
+        Ok(num_published)
     }
 
     #[allow(dead_code)]
     pub(crate) fn outbox_record_from_row(row: &PgRow) -> Result<OutboxRecord, OutboxError> {
+        let aggregate_type: String = row.try_get("aggregate_type")?;
+
         Ok(OutboxRecord {
             envelope: EventEnvelope {
                 id: row.try_get("id")?,
                 occurred_at: row.try_get("occurred_at")?,
                 event_type: row.try_get("event_type")?,
-                aggregate_type: row.try_get("aggregate_type")?,
+                aggregate_type: aggregate_type.parse().map_err(|_| {
+                    OutboxError::InvalidAggregateType {
+                        value: aggregate_type,
+                    }
+                })?,
                 aggregate_id: row.try_get("aggregate_id")?,
                 view_id: row.try_get("view_id")?,
                 payload: row.try_get("payload")?,
@@ -93,6 +227,9 @@ pub enum OutboxError {
 
     #[error("outbox attempts must be non-negative, got {value}")]
     NegativeAttempts { value: i32 },
+
+    #[error("invalid aggregate_type value '{value}' in outbox row")]
+    InvalidAggregateType { value: String },
 
     #[error(transparent)]
     DbError(#[from] sqlx::Error),

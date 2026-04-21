@@ -7,6 +7,7 @@ It currently contains:
 - environment-driven runtime config
 - PostgreSQL LISTEN setup on the shared outbox notify channel
 - shared outbox row mapping into `fscl_messaging::OutboxRecord`
+- startup-time outbox schema installation via `fscl_messaging::ensure_outbox_schema`
 - publisher-local settings such as batch size and fallback polling interval
 
 ## Dependencies
@@ -33,6 +34,8 @@ fscl-outbox-publisher/.env  -> publisher-local runtime values
 
 The outbox notify channel is not configured at runtime anymore. It comes from `fscl-messaging`.
 
+The outbox table/trigger/function SQL is also applied from `fscl-messaging` during startup, so the publisher does not need a local copy of the schema file.
+
 ## Config
 
 Current runtime config is parsed in `src/config.rs`.
@@ -54,12 +57,6 @@ Config points:
 - `OUTBOX_SUBJECT_PREFIX`: subject namespace prefix, for example `fscl.process`
 - `OUTBOX_BATCH_SIZE`: max number of rows processed per batch when polling/draining is implemented
 - `OUTBOX_FALLBACK_POLL_MS`: polling interval used when LISTEN notifications are not sufficient
-
-Code-level contract values, not env:
-
-- `OUTBOX_NOTIFY_CHANNEL`
-- `OUTBOX_TABLE`
-- `OUTBOX_SCHEMA_VERSION`
 
 ## Dev Setup
 

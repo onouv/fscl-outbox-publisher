@@ -1,4 +1,4 @@
-use fscl_messaging::{EventEnvelope, OutboxRecord};
+use fscl_messaging::{EventEnvelope, OutboxRecord, ensure_outbox_schema};
 use sqlx::PgPool;
 use sqlx::Row;
 use sqlx::postgres::PgListener;
@@ -14,13 +14,17 @@ pub struct Outbox {
     pool: sqlx::PgPool,
     config: Config,
     messenger: Messenger,
-}
+    }
 
 impl Outbox {
     pub async fn new(config: &Config, messenger: Messenger) -> Result<Self, OutboxError> {
         let pool = PgPool::connect(&config.database_url)
             .await
-            .map_err(|source| OutboxError::DbError(source))?;
+            .map_err(OutboxError::DbError)?;
+
+        ensure_outbox_schema(&pool)
+            .await
+            .map_err(|source| OutboxError::EnsureSchema { source })?;
 
         Ok(Self {
             pool,
@@ -98,30 +102,6 @@ impl Outbox {
         }
     }
 
-    async fn load_pending_outbox_records(&self) -> Result<Vec<OutboxRecord>, OutboxError> {
-        let rows = match sqlx::query(
-            r#"
-            SELECT id, aggregate_type, aggregate_id, event_type, view_id, payload
-            FROM outbox
-            WHERE published_at IS NULL
-            ORDER BY occurred_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT $1
-            "#,
-        )
-        .bind(cfg.batch_size)
-        .fetch_all(&mut *tx)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!("failed loading pending outbox records: {}", e);
-                return Err(OutboxError::DbError(e));
-            }
-        };
-
-        Ok(rows.into_iter().map(Self::outbox_record_from_row).collect::<Result<_, OutboxError>>()?)
-    }
     async fn drain_outbox(&self) -> Result<usize, OutboxError> {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
@@ -149,14 +129,14 @@ impl Outbox {
             let mut record = Self::outbox_record_from_row(&row)?;
 
 
-            match self.messenger.publish(&record) {
+            match self.messenger.publish(&record).await {
                 Ok(()) => {
                     record.mark_published(chrono::Utc::now());
                     num_published += 1;
                 }
                 Err(e) => {
                     error!("failed_publishing_event {}: {}", record.envelope.id, e);
-                    record.track_failure(e.to_string());
+                    record.mark_failure(e.to_string());
                 }
             };
 
@@ -212,6 +192,12 @@ fn attempts_from_db(value: i32) -> Result<u32, OutboxError> {
 
 #[derive(Debug, Error)]
 pub enum OutboxError {
+    #[error("failed to ensure outbox schema")]
+    EnsureSchema {
+        #[source]
+        source: sqlx::Error,
+    },
+
     #[error("failed to create LISTEN connection")]
     ConnectListener {
         #[source]

@@ -8,7 +8,7 @@ use crate::config::Config;
 
 pub struct Messenger {
     subject_prefix: String,
-    stream: JetStreamContext
+    stream: JetStreamContext,
 }
 
 impl Messenger {
@@ -27,7 +27,6 @@ impl Messenger {
     }
 
     pub async fn publish(&self, event: &OutboxRecord) -> Result<(), MessengerError> {
-
         let subject = format!(
             "{}.{}.{}",
             self.subject_prefix, event.envelope.aggregate_type, event.envelope.event_type
@@ -36,7 +35,7 @@ impl Messenger {
         let payload = serde_json::to_vec(&event)?;
 
         match self.stream.publish(subject, payload.into()).await {
-            Ok(_) =>  return Ok(()),
+            Ok(_) => Ok(()),
             Err(e) => Err(MessengerError::PublishError(e.to_string())),
         }
     }

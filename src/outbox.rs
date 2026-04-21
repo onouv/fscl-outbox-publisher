@@ -95,7 +95,7 @@ impl Outbox {
 
         match self.drain_outbox().await {
             Ok(count) => {
-                debug!("caught up on {} pending outbox records", count);
+                debug!("caught up on {} pending outbox notifications", count);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -124,10 +124,9 @@ impl Outbox {
         }
 
         let mut num_published = 0;
-        
+
         for row in rows {
             let mut record = Self::outbox_record_from_row(&row)?;
-
 
             match self.messenger.publish(&record).await {
                 Ok(()) => {
@@ -138,7 +137,7 @@ impl Outbox {
                     error!("failed_publishing_event {}: {}", record.envelope.id, e);
                     record.mark_failure(e.to_string());
                 }
-            };
+            }
 
             sqlx::query(
                 r#"
@@ -179,15 +178,10 @@ impl Outbox {
                 payload: row.try_get("payload")?,
             },
             published_at: row.try_get("published_at")?,
-            attempts: attempts_from_db(row.try_get("attempts")?)?,
+            attempts: normalize_attempts_from_db(row.try_get("attempts")?)?,
             last_error: row.try_get("last_error")?,
         })
     }
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn attempts_from_db(value: i32) -> Result<u32, OutboxError> {
-    u32::try_from(value).map_err(|_| OutboxError::NegativeAttempts { value })
 }
 
 #[derive(Debug, Error)]
@@ -221,20 +215,25 @@ pub enum OutboxError {
     DbError(#[from] sqlx::Error),
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+fn normalize_attempts_from_db(value: i32) -> Result<u32, OutboxError> {
+    u32::try_from(value).map_err(|_| OutboxError::NegativeAttempts { value })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::attempts_from_db;
+    use super::normalize_attempts_from_db;
 
     #[test]
     fn converts_non_negative_attempts() {
-        assert_eq!(attempts_from_db(0).unwrap(), 0);
-        assert_eq!(attempts_from_db(3).unwrap(), 3);
+        assert_eq!(normalize_attempts_from_db(0).unwrap(), 0);
+        assert_eq!(normalize_attempts_from_db(3).unwrap(), 3);
     }
 
     #[test]
     fn rejects_negative_attempts() {
         assert!(matches!(
-            attempts_from_db(-1),
+            normalize_attempts_from_db(-1),
             Err(super::OutboxError::NegativeAttempts { value: -1 })
         ));
     }

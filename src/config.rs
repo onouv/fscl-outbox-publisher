@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use fscl_messaging::OUTBOX_NOTIFY_CHANNEL;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -29,7 +30,7 @@ impl Config {
         let database_url = Self::build_database_url_from_env()?;
 
         let nats_url = require_env("NATS_URL")?;
-        let listen_channel = require_env("OUTBOX_NOTIFY_CHANNEL")?;
+        let listen_channel = OUTBOX_NOTIFY_CHANNEL.to_string();
         let subject_prefix = require_env("OUTBOX_SUBJECT_PREFIX")?;
 
         let batch_size = require_env("OUTBOX_BATCH_SIZE")?

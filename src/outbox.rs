@@ -215,6 +215,8 @@ pub enum OutboxError {
     DbError(#[from] sqlx::Error),
 }
 
+// postgres stores attempts as signed INT, but we want to work with u32 at domain level. 
+// This function converts and validates the value from the database.
 #[cfg_attr(not(test), allow(dead_code))]
 fn normalize_attempts_from_db(value: i32) -> Result<u32, OutboxError> {
     u32::try_from(value).map_err(|_| OutboxError::NegativeAttempts { value })

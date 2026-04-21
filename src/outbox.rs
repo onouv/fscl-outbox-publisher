@@ -104,27 +104,14 @@ impl Outbox {
 
     async fn drain_outbox(&self) -> Result<usize, OutboxError> {
         let mut tx = self.pool.begin().await?;
-        let rows = sqlx::query(
-            r#"
-            SELECT id, occurred_at, event_type, aggregate_type, aggregate_id, view_id, payload, published_at, attempts, last_error
-            FROM outbox
-            WHERE published_at IS NULL
-            ORDER BY occurred_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT $1
-            "#,
-        )
-        .bind(self.config.batch_size as i32)
-        .fetch_all(&mut *tx)
-        .await?;
 
+        let rows = self.load_records(&mut tx).await?;
         if rows.is_empty() {
             tx.commit().await?;
             return Ok(0);
         }
-
+        
         let mut num_published = 0;
-
         for row in rows {
             let mut record = Self::outbox_record_from_row(&row)?;
 
@@ -159,6 +146,23 @@ impl Outbox {
         Ok(num_published)
     }
 
+    async fn load_records(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Vec<PgRow>, OutboxError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, occurred_at, event_type, aggregate_type, aggregate_id, view_id, payload, published_at, attempts, last_error
+            FROM outbox
+            WHERE published_at IS NULL
+            ORDER BY occurred_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $1
+            "#,
+        )
+        .bind(self.config.batch_size as i32)
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(rows)
+    }
+    
     #[allow(dead_code)]
     pub(crate) fn outbox_record_from_row(row: &PgRow) -> Result<OutboxRecord, OutboxError> {
         let aggregate_type: String = row.try_get("aggregate_type")?;

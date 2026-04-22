@@ -32,9 +32,7 @@ fscl-messaging contract     -> OUTBOX_NOTIFY_CHANNEL, schema, envelope types
 fscl-outbox-publisher/.env  -> publisher-local runtime values
 ```
 
-The outbox notify channel is not configured at runtime anymore. It comes from `fscl-messaging`.
-
-The outbox table/trigger/function SQL is also applied from `fscl-messaging` during startup, so the publisher does not need a local copy of the schema file.
+The outbox table/trigger/function SQL is applied from `fscl-messaging` during startup, so the publisher does not need a local copy of the schema file.
 
 ## Config
 

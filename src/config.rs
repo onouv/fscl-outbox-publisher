@@ -5,6 +5,8 @@ use fscl_messaging::OUTBOX_NOTIFY_CHANNEL;
 pub struct Config {
     pub database_url: String,
     pub nats_url: String,
+    pub nats_user: Option<String>,
+    pub nats_password: Option<String>,
     pub listen_channel: String,
     pub subject_prefix: String,
     pub batch_size: i64,
@@ -12,8 +14,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build_database_url_from_env() -> Result<String> {
-        let db_type = "postgres".to_string();
+    fn build_database_url_from_env() -> Result<String> {
+        let db_type = require_env("DB_TYPE")?;
         let db_host = require_env("DB_HOST")?;
         let db_port = require_env("DB_PORT")?;
         let db_user = require_env("DB_USER")?;
@@ -26,10 +28,23 @@ impl Config {
         ))
     }
 
+    fn parse_nats_from_env() -> Result<(String, Option<String>, Option<String>)> {
+        let nats_user = std::env::var("NATS_USER").ok().filter(|s| !s.is_empty());
+        let nats_password = std::env::var("NATS_PASSWORD")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let host = require_env("NATS_HOST")?;
+        let port = require_env("NATS_PORT")?;
+        Ok((
+            format!("nats://{}:{}", host, port),
+            nats_user,
+            nats_password,
+        ))
+    }
+
     pub fn from_env() -> Result<Self> {
         let database_url = Self::build_database_url_from_env()?;
-
-        let nats_url = require_env("NATS_URL")?;
+        let (nats_url, nats_user, nats_password) = Self::parse_nats_from_env()?;
         let listen_channel = OUTBOX_NOTIFY_CHANNEL.to_string();
         let subject_prefix = require_env("OUTBOX_SUBJECT_PREFIX")?;
 
@@ -44,6 +59,8 @@ impl Config {
         Ok(Self {
             database_url,
             nats_url,
+            nats_user,
+            nats_password,
             listen_channel,
             subject_prefix,
             batch_size,

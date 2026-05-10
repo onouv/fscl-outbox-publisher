@@ -554,9 +554,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
- "dotenv",
  "fscl-messaging",
  "fscl_core",
+ "log",
  "serde",
  "serde_json",
  "sqlx",

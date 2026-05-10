@@ -28,8 +28,7 @@ fscl-core      -> shared core types used by transitional code paths
 
 ```text
 fscl-messaging contract     -> OUTBOX_NOTIFY_CHANNEL, schema, envelope types
-.env.shared / ConfigMap     -> shared runtime values where appropriate
-fscl-outbox-publisher/.env  -> publisher-local runtime values
+process environment         -> runtime values from shell or container
 ```
 
 The outbox table/trigger/function SQL is applied from `fscl-messaging` during startup, so the publisher does not need a local copy of the schema file.
@@ -38,11 +37,7 @@ The outbox table/trigger/function SQL is applied from `fscl-messaging` during st
 
 Current runtime config is parsed in `src/config.rs`.
 
-Shared/local dev loading order:
-
-1. `../.env.shared`
-2. local `.env`
-3. container or shell overrides
+Runtime values are read from process environment variables (shell or container).
 
 Config points:
 
@@ -58,11 +53,10 @@ Config points:
 
 ## Dev Setup
 
-Create the env files, modify as needed:
+Load local dev secrets from the compose helper:
 
 ```sh
-cp ../.env.shared.example ../.env.shared
-cp .env.example .env
+source ../compose/load-secrets.sh
 ```
 
 Run directly:
@@ -76,7 +70,8 @@ cargo run
 Or run with the shared Compose scaffolding:
 
 ```sh
-docker compose -f ../compose/infra.yaml -f ../compose/process-stack.yaml up
+source ../compose/load-secrets.sh
+docker compose -p fscl -f ../compose/process-stack.yaml up
 ```
 
 ## K8s Setup
